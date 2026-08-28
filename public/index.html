@@ -1,9 +1,41 @@
-<!doctype html><html lang="hi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MS MANISH DIGITAL PORTAL</title><meta name="description" content="घर बैठे ऑनलाइन काम और दस्तावेज भेजें"><link rel="icon" href="assets/logo-original.jpeg"><link rel="stylesheet" href="style.css"></head><body>
+<!doctype html>
+<html lang="hi">
+<head>
+
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-F096G0G95S"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-F096G0G95S');
+</script>
+
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MS MANISH DIGITAL PORTAL</title>
+<meta name="description" content="घर बैठे ऑनलाइन काम और दस्तावेज भेजें">
+<link rel="icon" href="assets/logo-original.jpeg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
 <header class="topbar"><div class="container nav"><a class="brand" href="#home" style="text-decoration:none"><img src="assets/logo-original.jpeg" alt="MS Manish Digital logo"><div><h1 id="shopName">MS MANISH DIGITAL</h1><p id="tagline">Your Trusted Digital Service Partner</p></div></a><div class="nav-actions"><a class="btn btn-outline" href="#track">🔎 Status Check</a><a class="btn btn-primary" id="callBtn" href="tel:9229288090">📞 Call</a></div></div></header>
+
 <main id="home"><section class="hero"><div class="container hero-grid"><div><span class="badge">⚡ MS MANISH DIGITAL PORTAL</span><h2>घर बैठे अपना <span>ऑनलाइन काम</span> भेजें</h2><p>Service चुनें, documents upload करें और तुरंत Work ID प्राप्त करें। काम की स्थिति मोबाइल नंबर से कभी भी जांचें।</p><div class="hero-actions"><a href="#submit" class="btn btn-primary">📤 अभी काम भेजें</a><a id="waBtn" href="#" class="btn btn-outline" target="_blank">💬 WhatsApp</a></div></div><aside class="quick-card"><h3>Available Services</h3><div class="service-list"><div class="service-pill">🪪 PAN Card</div><div class="service-pill">📜 Certificates</div><div class="service-pill">🎓 Scholarship</div><div class="service-pill">🏫 LNMU Work</div><div class="service-pill">🛂 Passport</div><div class="service-pill">📄 Resume</div></div></aside></div></section>
+
 <section class="section" id="submit"><div class="container"><div class="section-title"><h3>Online Work Submission</h3><p>सही जानकारी और साफ documents upload करें</p></div><div class="work-layout"><aside class="panel"><h3>काम भेजने से पहले</h3><div class="steps"><div class="step"><div><b>मोबाइल नंबर सही दें</b><div class="small">इसी नंबर से status check होगा।</div></div></div><div class="step"><div><b>साफ फोटो या PDF भेजें</b><div class="small">प्रत्येक file अधिकतम 10 MB।</div></div></div><div class="step"><div><b>Payment proof optional</b><div class="small">भुगतान किया हो तो screenshot लगाएं।</div></div></div><div class="step"><div><b>Work ID सुरक्षित रखें</b><div class="small">Receipt और tracking में काम आएगा।</div></div></div></div><div class="contact-box"><b id="phoneText">📱 9229288090</b><br><span id="emailText">✉️ msmanishdcexpert@gmail.com</span><br><span id="addressText">📍 Panchwati Chowk, Rajnagar</span></div></aside>
+
 <form class="panel" id="workForm"><div class="form-grid"><label>पूरा नाम<input name="name" required maxlength="100" placeholder="अपना नाम लिखें"></label><label>मोबाइल नंबर<input name="mobile" required inputmode="numeric" pattern="[0-9]{10}" maxlength="10" placeholder="10 digit mobile"></label><label>Email (Optional)<input name="email" type="email" placeholder="example@gmail.com"></label><label>Update माध्यम<select name="deliveryMode"><option>WhatsApp</option><option>Phone Call</option><option>Email</option></select></label><label class="full">Service चुनें<select name="service" id="serviceSelect" required><option value="">-- Select Service --</option></select></label><label class="full">काम की जानकारी<textarea name="message" rows="4" placeholder="Application number, जरूरी निर्देश आदि"></textarea></label><label class="full upload">Documents Upload<input type="file" name="documents" multiple accept=".jpg,.jpeg,.png,.webp,.pdf"><span class="small">JPG, PNG, WEBP या PDF • अधिकतम 8 files</span></label><label>Payment Amount (Optional)<input name="paymentAmount" type="number" min="0" step="1" placeholder="₹ Amount"></label><label class="upload">Payment Screenshot<input type="file" name="paymentProof" accept=".jpg,.jpeg,.png,.webp,.pdf"></label><label class="full agree"><input type="checkbox" required><span>मैं पुष्टि करता/करती हूँ कि दी गई जानकारी सही है और documents काम के लिए भेज रहा/रही हूँ।</span></label><button class="btn btn-primary full" id="submitBtn" type="submit">🚀 काम भेजें</button></div><div id="result" class="result"></div></form></div></div></section>
+
 <section class="section" id="track"><div class="container"><div class="section-title"><h3>Work Status Check</h3><p>Work ID और वही mobile number डालें</p></div><form id="trackForm" class="panel track-box"><div class="form-grid"><label>Work ID<input name="id" required placeholder="MSD-2026..."></label><label>Mobile Number<input name="mobile" required pattern="[0-9]{10}" maxlength="10" placeholder="10 digit mobile"></label><button class="btn btn-primary full" type="submit">🔎 Status देखें</button></div><div id="statusResult" class="status-result"></div></form></div></section>
+
 <section class="section"><div class="container"><div class="section-title"><h3>Popular Digital Services</h3><p>एक ही portal से कई online services</p></div><div class="services"><article class="service-card"><span>🎓</span><b>Student Services</b><p>Admission, exam form, scholarship, result और LNMU work.</p></article><article class="service-card"><span>📜</span><b>Certificates</b><p>Income, caste, residence, EWS, NCL और OBC applications.</p></article><article class="service-card"><span>🪪</span><b>Identity Services</b><p>PAN, passport, APAAR, ABC ID और related online work.</p></article><article class="service-card"><span>💼</span><b>Business & Jobs</b><p>Resume, Udyam, EPFO, e-Shram और online registrations.</p></article></div></div></section></main>
-<button class="chat-toggle" id="chatToggle" aria-label="Open assistant">🤖</button><div class="chat-box" id="chatBox"><div class="chat-head">MS Manish Digital Assistant</div><div class="chat-body"><div class="bubble">नमस्ते! मैं portal assistant हूँ। नीचे से सवाल चुनें।</div><div class="chat-options"><button data-answer="काम भेजने के लिए Online Work Submission form भरें और documents upload करें।">काम कैसे भेजें?</button><button data-answer="Submit के बाद मिलने वाला Work ID सुरक्षित रखें। Status Check section में Work ID और mobile डालें।">Status कैसे देखें?</button><button data-answer="JPG, PNG, WEBP और PDF files accepted हैं। एक file अधिकतम 10 MB हो सकती है।">कौन-सी files?</button><button id="chatWa">WhatsApp सहायता</button></div><div id="chatAnswer"></div></div></div>
-<footer class="footer"><div class="container footer-inner"><span>© 2026 <b>MS MANISH DIGITAL</b></span><span><a href="/admin">Admin Login</a> • Secure Document Portal</span></div></footer><script src="app.js"></script></body></html>
+
+<button class="chat-toggle" id="chatToggle" aria-label="Open assistant">🤖</button>
+<div class="chat-box" id="chatBox"><div class="chat-head">MS Manish Digital Assistant</div><div class="chat-body"><div class="bubble">नमस्ते! मैं portal assistant हूँ। नीचे से सवाल चुनें।</div><div class="chat-options"><button data-answer="काम भेजने के लिए Online Work Submission form भरें और documents upload करें।">काम कैसे भेजें?</button><button data-answer="Submit के बाद मिलने वाला Work ID सुरक्षित रखें। Status Check section में Work ID और mobile डालें।">Status कैसे देखें?</button><button data-answer="JPG, PNG, WEBP और PDF files accepted हैं। एक file अधिकतम 10 MB हो सकती है।">कौन-सी files?</button><button id="chatWa">WhatsApp सहायता</button></div><div id="chatAnswer"></div></div></div>
+
+<footer class="footer"><div class="container footer-inner"><span>© 2026 <b>MS MANISH DIGITAL</b></span><span><a href="/admin">Admin Login</a> • Secure Document Portal</span></div></footer>
+<script src="app.js"></script>
+</body>
+</html>
