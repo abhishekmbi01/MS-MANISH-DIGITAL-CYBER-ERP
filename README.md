@@ -1,44 +1,31 @@
-# MS MANISH DIGITAL CYBER ERP v4 — ONLINE CUSTOMER EDITION
+# MS MANISH CYBER ERP v3 - Partner Edition
 
-This build keeps the existing customer portal + admin ERP, and adds production-ready support for:
+This upgrade keeps the public customer work portal and adds a separate Partner/Cyber Login system.
 
-- Public customer access from any phone/network after deployment
-- MongoDB Atlas for permanent requests, status, services, settings, expenses and ERP data
-- Cloudinary for permanent JPG/PNG/WEBP/PDF document and payment-proof storage
-- Local JSON/local upload fallback for testing on your own PC
-- Health endpoint for hosting: `/api/health`
-- Customer portal: `/`
-- Status section: `/#track`
-- Admin ERP: `/admin`
+## New in v3
+- Partner/Cyber login with Partner ID + PIN
+- Admin can create, disable/enable and reset PIN for partners
+- Partner can submit customer work + documents
+- Every partner sees only their own works
+- Partner dashboard: total / processing / completed / payment recorded
+- Partner name + Partner ID attached to every submitted work
+- Expanded workflow statuses: New, Assigned, Processing, Checking, Waiting for Customer, Completed, Delivered
+- Admin search by customer or partner
+- CSV export includes partner details
+- Existing customer portal, Work ID tracking and receipt remain available
 
-## Local test
+## Run locally
+1. Install Node.js 18+
+2. Copy `.env.example` to `.env`
+3. Change `ADMIN_PASSWORD` and `TOKEN_SECRET`
+4. Run `npm install`
+5. Run `npm start`
 
-```cmd
-npm install
-copy .env.example .env
-npm start
-```
+URLs:
+- Customer: http://localhost:3000/
+- Partner: http://localhost:3000/partner
+- Admin: http://localhost:3000/admin
 
-Open `http://localhost:3000`.
-
-If MongoDB/Cloudinary variables are blank, local testing uses JSON files + `uploads/`.
-
-## Public online deployment
-
-For customer use from anywhere, configure BOTH MongoDB Atlas and Cloudinary environment variables on your Node hosting provider.
-
-Required production variables:
-
-- `ADMIN_USER`
-- `ADMIN_PASSWORD`
-- `MONGODB_URI`
-- `MONGODB_DB`
-- `CLOUDINARY_CLOUD_NAME`
-- `CLOUDINARY_API_KEY`
-- `CLOUDINARY_API_SECRET`
-
-A `render.yaml` is included for Render Blueprint deployment. You can also deploy the same Node project to Railway/VPS or another Node host.
-
-## Important
-
-Do not put real database/cloud-storage passwords in GitHub files. Add them only as hosting Environment Variables. Change the default admin password before publishing.
+## Render deployment
+Use the same Node service approach as the earlier portal. Build command: `npm install`; Start command: `npm start`.
+For permanent uploaded documents and JSON data, attach a persistent disk or later move storage to MongoDB/S3/Cloudinary.
