@@ -1,0 +1,1 @@
+Keep the existing public/assets/logo-original.jpeg from the current GitHub repository. ERP v4.1 references this exact path for branding.

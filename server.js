@@ -72,7 +72,7 @@ function readJson(file, fallback = []) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; }
 }
 function writeJson(file, data) {
-  const tmp = `${file}.${process.pid}.tmp`;
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
   fs.renameSync(tmp, file);
 }
@@ -104,7 +104,7 @@ function nextSequence(prefix, items, field='id') {
   }
   return `${prefix}-${String(max+1).padStart(4,'0')}`;
 }
-function nextWorkId(){ const d=new Date(); const day=`${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`; return `MSD-${day}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`; }
+function nextWorkId(){ const d=new Date(); const day=`${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`; const used=new Set(db.requests().map(x=>x.id)); let id; do{id=`MSD-${day}-${crypto.randomBytes(6).toString('hex').toUpperCase()}`;}while(used.has(id)); return id; }
 function nextDocNo(kind, items){ const d=new Date(); const day=`${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`; const count=items.filter(x=>String(x[kind]||'').startsWith(`${kind==='invoiceNo'?'INV':'RCP'}-${day}`)).length+1; return `${kind==='invoiceNo'?'INV':'RCP'}-${day}-${String(count).padStart(4,'0')}`; }
 
 function shopConfig() {
@@ -139,7 +139,7 @@ function normalizeWork(w) {
   const total = w.totalFee !== undefined ? num(w.totalFee) : Math.max(paid, num(w.paymentAmount));
   const p = paymentState(total, paid);
   return {
-    priority:'Normal', dueDate:'', deadline:'', expiryDate:'', documentChecklist:[], commissionAmount:0, commissionStatus:'Pending', legacyPaidAmount:0,
+    priority:'Normal', dueDate:'', deadline:'', expiryDate:'', documentChecklist:[], commissionAmount:0, commissionStatus:'Pending', legacyPaidAmount:0, paymentClaimAmount:0, paymentClaimStatus:'', customerNote:'',
     assignedStaffId:'', assignedStaffName:'', receiptNo:'', invoiceNo:'', paymentHistoryIds:[], source:'Customer', partnerId:'', partnerName:'',
     ...w, legacyPaidAmount:w.legacyPaidAmount!==undefined?num(w.legacyPaidAmount):((!Array.isArray(w.paymentHistoryIds)||w.paymentHistoryIds.length===0)?paid:0), ...p,
     files:Array.isArray(w.files)?w.files:[], history:Array.isArray(w.history)?w.history:[], notificationHistory:Array.isArray(w.notificationHistory)?w.notificationHistory:[]
@@ -201,8 +201,10 @@ function customerAuth(req,res,next) {
 }
 
 const allowedMime = new Set(['image/jpeg','image/png','image/webp','application/pdf']);
-const storage=multer.diskStorage({ destination:(_,__,cb)=>cb(null,UPLOAD_DIR), filename:(_,file,cb)=>{ const safe=file.originalname.normalize('NFKD').replace(/[^a-zA-Z0-9._-]/g,'_').slice(-120); cb(null,`${Date.now()}-${crypto.randomBytes(5).toString('hex')}-${safe}`); }});
-const upload=multer({storage,limits:{fileSize:10*1024*1024,files:12},fileFilter:(_,file,cb)=>cb(allowedMime.has(file.mimetype)?null:new Error('Only JPG, PNG, WEBP and PDF files are allowed.'),allowedMime.has(file.mimetype))});
+const extByMime={'image/jpeg':'.jpg','image/png':'.png','image/webp':'.webp','application/pdf':'.pdf'};
+const storage=multer.diskStorage({ destination:(_,__,cb)=>cb(null,UPLOAD_DIR), filename:(_,file,cb)=>{ const base=path.basename(file.originalname,path.extname(file.originalname)).normalize('NFKD').replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,70)||'file'; const ext=extByMime[file.mimetype]||''; cb(null,`${Date.now()}-${crypto.randomBytes(12).toString('hex')}-${base}${ext}`); }});
+const upload=multer({storage,limits:{fileSize:10*1024*1024,files:12,fields:30,fieldSize:20000},fileFilter:(_,file,cb)=>cb(allowedMime.has(file.mimetype)?null:new Error('Only JPG, PNG, WEBP and PDF files are allowed.'),allowedMime.has(file.mimetype))});
+const restoreUpload=multer({storage:multer.memoryStorage(),limits:{fileSize:20*1024*1024,files:1,fields:5},fileFilter:(_,file,cb)=>{const ok=file.mimetype==='application/json'||file.mimetype==='text/json'||file.originalname.toLowerCase().endsWith('.json');cb(ok?null:new Error('Only JSON backup files are allowed.'),ok);}});
 const workFields=upload.fields([{name:'documents',maxCount:10},{name:'paymentProof',maxCount:1}]);
 function uploaded(req){
   const docs=((req.files||{}).documents||[]).map(f=>({name:f.originalname,url:`/uploads/${f.filename}`,localFile:f.filename,size:f.size,type:f.mimetype,driveFileId:''}));
@@ -212,10 +214,15 @@ function uploaded(req){
 }
 
 app.disable('x-powered-by');
+app.set('trust proxy',1);
+app.use((req,res,next)=>{res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','strict-origin-when-cross-origin');res.setHeader('X-Frame-Options','SAMEORIGIN');res.setHeader('Permissions-Policy','camera=(), microphone=(), geolocation=()');next();});
+const rateBuckets=new Map();
+function rateLimit(windowMs,max,keyFn=req=>req.ip||req.socket.remoteAddress||'unknown'){return (req,res,next)=>{const key=keyFn(req),now=Date.now(),row=rateBuckets.get(key);if(!row||now-row.start>=windowMs){rateBuckets.set(key,{start:now,count:1});return next();}row.count++;if(row.count>max)return res.status(429).json({error:'Too many requests. Please try again later.'});next();};}
+setInterval(()=>{const cutoff=Date.now()-60*60*1000;for(const [k,v] of rateBuckets)if(v.start<cutoff)rateBuckets.delete(k);},30*60*1000).unref();
 app.use(express.json({limit:'2mb'}));
 app.use(express.urlencoded({extended:true}));
 app.use(express.static(path.join(ROOT,'public')));
-app.use('/uploads',express.static(UPLOAD_DIR,{fallthrough:false}));
+app.use('/uploads',(req,res,next)=>{res.setHeader('Content-Disposition','attachment');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Content-Security-Policy',"default-src 'none'; sandbox");next();},express.static(UPLOAD_DIR,{fallthrough:false}));
 
 function logNotification(entry){ const rows=db.notifications(); rows.unshift({id:uid('NTF'),at:nowIso(),...entry}); writeJson(FILES.notifications,rows.slice(0,5000)); }
 async function sendWhatsApp(mobile, message) {
@@ -277,21 +284,21 @@ async function uploadToDrive(localPath,name,mime='application/octet-stream'){
 }
 async function cloudBackupWorkFiles(work){
   if(String(process.env.GOOGLE_DRIVE_ENABLED).toLowerCase()!=='true')return;
-  const works=getWorks(), live=works.find(x=>x.id===work.id); if(!live)return;
-  let changed=false;
-  for(const f of [...(live.files||[]),...(live.paymentProof?[live.paymentProof]:[])]){
+  const snapshot=getWorks().find(x=>x.id===work.id); if(!snapshot)return;
+  for(const f of [...(snapshot.files||[]),...(snapshot.paymentProof?[snapshot.paymentProof]:[])]){
     if(f.driveFileId||!f.localFile)continue; const p=path.join(UPLOAD_DIR,path.basename(f.localFile)); if(!fs.existsSync(p))continue;
-    const r=await uploadToDrive(p,`${live.id}-${f.name}`,f.type); if(r.ok){f.driveFileId=r.id;changed=true;}
+    const r=await uploadToDrive(p,`${snapshot.id}-${f.name}`,f.type); if(!r.ok)continue;
+    const works=getWorks(),live=works.find(x=>x.id===work.id);if(!live)continue;const targets=[...(live.files||[]),...(live.paymentProof?[live.paymentProof]:[])],target=targets.find(x=>x.localFile===f.localFile);if(target&&!target.driveFileId){target.driveFileId=r.id;saveWorks(works);}
   }
-  if(changed)saveWorks(works);
 }
 
 function createWork(body, req, source='Customer', partner=null, actor=null) {
   const name=clean(body.name,100), mobile=clean(body.mobile,15), serviceName=clean(body.service,120);
   if(!name||!/^\d{10}$/.test(mobile)||!serviceName)throw new Error('Valid name, 10-digit mobile and service are required.');
   const service=serviceByName(serviceName), files=uploaded(req), works=getWorks(), now=nowIso();
-  const defaultFee=service?num(service.fee):0, total=body.totalFee!==undefined?num(body.totalFee):defaultFee;
-  const initialPaid=num(body.paidAmount!==undefined?body.paidAmount:body.paymentAmount), payState=paymentState(total,initialPaid);
+  if(!service && source!=='Staff')throw new Error('Select a valid active service.');
+  const defaultFee=service?num(service.fee):0, total=(source==='Staff'&&body.totalFee!==undefined)?num(body.totalFee):defaultFee;
+  const claimedAmount=(source==='Staff')?0:num(body.paymentAmount!==undefined?body.paymentAmount:body.paidAmount), initialPaid=(source==='Staff')?num(body.paidAmount!==undefined?body.paidAmount:body.paymentAmount):0, payState=paymentState(total,initialPaid);
   const priority=['Normal','Urgent','Very Urgent'].includes(body.priority)?body.priority:'Normal';
   const status=source==='Partner'?'New':source==='Staff'?'Received':'Received';
   const item={
@@ -299,7 +306,7 @@ function createWork(body, req, source='Customer', partner=null, actor=null) {
     email:clean(body.email,150),message:clean(body.message,1500),deliveryMode:clean(body.deliveryMode,30)||'WhatsApp',...payState,
     paymentProof:files.pay, files:files.docs, status,adminNote:'',source,partnerId:partner?.id||'',partnerName:partner?.name||'',
     assignedStaffId:actor?.id||'',assignedStaffName:actor?.name||'',priority,dueDate:clean(body.dueDate,20),deadline:clean(body.deadline,30),expiryDate:clean(body.expiryDate,20),
-    documentChecklist:service?.documents||[],commissionAmount:partner?num(body.commissionAmount!==undefined?body.commissionAmount:service?.partnerCommission):0,commissionStatus:'Pending',
+    documentChecklist:service?.documents||[],commissionAmount:partner?num(service?.partnerCommission):0,commissionStatus:'Pending',paymentClaimAmount:claimedAmount,paymentClaimStatus:(claimedAmount>0||files.pay)?'Pending Verification':'',customerNote:'',
     createdAt:now,updatedAt:now,history:[{status,at:now,by:source}],notificationHistory:[],paymentHistoryIds:[]
   };
   works.unshift(item); saveWorks(works);
@@ -319,19 +326,19 @@ function commissionLedger(partnerId){
   return {earned,commissionPaid,commissionPending:Math.max(0,earned-commissionPaid),advanceBalance:moneyRound(advanceCredits-advanceDebits),transactions:wallet};
 }
 
-app.get('/api/health',(_,res)=>res.json({ok:true,version:'4.0.0',time:nowIso()}));
+app.get('/api/health',(_,res)=>res.json({ok:true,version:'4.1.0',time:nowIso(),securityConfigured:!!process.env.ADMIN_PASSWORD&&!!process.env.TOKEN_SECRET&&process.env.ADMIN_PASSWORD!=='ChangeMe123'&&process.env.TOKEN_SECRET!=='CHANGE_ME_NOW'}));
 app.get('/api/config',(_,res)=>res.json({...shopConfig(),whatsappConfigured:String(process.env.WHATSAPP_ENABLED).toLowerCase()==='true',smsConfigured:String(process.env.SMS_ENABLED).toLowerCase()==='true',driveConfigured:String(process.env.GOOGLE_DRIVE_ENABLED).toLowerCase()==='true'}));
 app.get('/api/services',(_,res)=>res.json(serviceRows().filter(x=>x.active!==false)));
-app.get('/api/qr',async(req,res)=>{try{const text=clean(req.query.text,1000);if(!text)return res.status(400).send('Missing text');const svg=await QRCode.toString(text,{type:'svg',margin:1,width:220});res.type('image/svg+xml').send(svg);}catch(e){res.status(400).send('QR failed');}});
+app.get('/api/qr',rateLimit(60*1000,60),async(req,res)=>{try{const text=clean(req.query.text,1000);if(!text)return res.status(400).send('Missing text');const svg=await QRCode.toString(text,{type:'svg',margin:1,width:220});res.type('image/svg+xml').send(svg);}catch(e){res.status(400).send('QR failed');}});
 
-app.post('/api/requests',workFields,(req,res)=>{try{const item=createWork(req.body,req,'Customer');res.status(201).json({success:true,id:item.id,status:item.status,receiptNo:item.receiptNo,invoiceNo:item.invoiceNo,totalFee:item.totalFee,paidAmount:item.paidAmount,dueAmount:item.dueAmount,createdAt:item.createdAt});}catch(e){res.status(400).json({error:e.message});}});
-app.get('/api/status',(req,res)=>{const id=clean(req.query.id,50).toUpperCase(),mobile=clean(req.query.mobile,15);const item=getWorks().find(x=>x.id===id&&x.mobile===mobile);if(!item)return res.status(404).json({error:'Work ID or mobile number did not match.'});res.json(publicWork(item));});
-function publicWork(item){return {id:item.id,receiptNo:item.receiptNo,invoiceNo:item.invoiceNo,name:item.name,service:item.service,status:item.status,priority:item.priority,dueDate:item.dueDate,deadline:item.deadline,expiryDate:item.expiryDate,adminNote:item.adminNote,totalFee:item.totalFee,paidAmount:item.paidAmount,dueAmount:item.dueAmount,paymentStatus:item.paymentStatus,documentChecklist:item.documentChecklist,createdAt:item.createdAt,updatedAt:item.updatedAt,history:item.history||[]};}
-app.get('/api/receipt/:id',(req,res)=>{const mobile=clean(req.query.mobile,15),item=getWorks().find(x=>x.id===req.params.id.toUpperCase()&&x.mobile===mobile);if(!item)return res.status(404).json({error:'Receipt not found'});const payments=db.payments().filter(p=>p.workId===item.id);res.json({...publicWork(item),mobile:item.mobile,email:item.email,partnerId:item.partnerId,partnerName:item.partnerName,payments,shop:shopConfig()});});
+app.post('/api/requests',rateLimit(10*60*1000,20),workFields,(req,res)=>{try{const item=createWork(req.body,req,'Customer');res.status(201).json({success:true,id:item.id,status:item.status,receiptNo:item.receiptNo,invoiceNo:item.invoiceNo,totalFee:item.totalFee,paidAmount:item.paidAmount,dueAmount:item.dueAmount,createdAt:item.createdAt});}catch(e){res.status(400).json({error:e.message});}});
+app.get('/api/status',rateLimit(5*60*1000,60),(req,res)=>{const id=clean(req.query.id,50).toUpperCase(),mobile=clean(req.query.mobile,15);const item=getWorks().find(x=>x.id===id&&x.mobile===mobile);if(!item)return res.status(404).json({error:'Work ID or mobile number did not match.'});res.json(publicWork(item));});
+function publicWork(item){return {id:item.id,receiptNo:item.receiptNo,invoiceNo:item.invoiceNo,name:item.name,service:item.service,status:item.status,priority:item.priority,dueDate:item.dueDate,deadline:item.deadline,expiryDate:item.expiryDate,customerNote:item.customerNote||'',paymentClaimAmount:item.paymentClaimAmount||0,paymentClaimStatus:item.paymentClaimStatus||'',totalFee:item.totalFee,paidAmount:item.paidAmount,dueAmount:item.dueAmount,paymentStatus:item.paymentStatus,documentChecklist:item.documentChecklist,createdAt:item.createdAt,updatedAt:item.updatedAt,history:item.history||[]};}
+app.get('/api/receipt/:id',rateLimit(5*60*1000,60),(req,res)=>{const mobile=clean(req.query.mobile,15),item=getWorks().find(x=>x.id===req.params.id.toUpperCase()&&x.mobile===mobile);if(!item)return res.status(404).json({error:'Receipt not found'});const payments=db.payments().filter(p=>p.workId===item.id);res.json({...publicWork(item),mobile:item.mobile,email:item.email,partnerId:item.partnerId,partnerName:item.partnerName,payments,shop:shopConfig()});});
 
 // Customer OTP login + customer portal
-app.post('/api/customer/request-otp',async(req,res)=>{
-  const mobile=clean(req.body.mobile,15);if(!/^\d{10}$/.test(mobile))return res.status(400).json({error:'Enter valid 10-digit mobile number'});
+app.post('/api/customer/request-otp',rateLimit(15*60*1000,5,req=>(req.ip||'')+':otp:'+clean(req.body.mobile,15)),async(req,res)=>{
+  const mobile=clean(req.body.mobile,15);if(!/^\d{10}$/.test(mobile))return res.status(400).json({error:'Enter valid 10-digit mobile number'});if(!getWorks().some(x=>x.mobile===mobile))return res.status(404).json({error:'No customer work found for this mobile number'});
   const otp=String(crypto.randomInt(100000,999999)), ttl=Number(process.env.OTP_TTL_MINUTES||5), rows=db.otp().filter(x=>x.mobile!==mobile&&new Date(x.expiresAt)>new Date());
   rows.push({mobile,hash:hashSecret(otp),expiresAt:new Date(Date.now()+ttl*60000).toISOString(),attempts:0,createdAt:nowIso()});writeJson(FILES.otp,rows);
   const result=await notifyMobile(mobile,`MS MANISH ERP login OTP: ${otp}. Valid for ${ttl} minutes. Do not share this OTP.`,{type:'customer_otp'});
@@ -340,9 +347,9 @@ app.post('/api/customer/request-otp',async(req,res)=>{
   if(!result.whatsapp.ok&&!result.sms.ok&&String(process.env.OTP_DEV_MODE).toLowerCase()!=='true')response.warning='WhatsApp/SMS provider is not configured. Admin must configure notification credentials.';
   res.json(response);
 });
-app.post('/api/customer/verify-otp',(req,res)=>{
+app.post('/api/customer/verify-otp',rateLimit(15*60*1000,10,req=>(req.ip||'')+':verify:'+clean(req.body.mobile,15)),(req,res)=>{
   const mobile=clean(req.body.mobile,15),otp=clean(req.body.otp,10),rows=db.otp(),idx=rows.findIndex(x=>x.mobile===mobile);
-  if(idx<0)return res.status(400).json({error:'Request OTP first'});const r=rows[idx];if(new Date(r.expiresAt)<new Date()){rows.splice(idx,1);writeJson(FILES.otp,rows);return res.status(400).json({error:'OTP expired'});}if(!verifySecret(otp,r.hash)){r.attempts=(r.attempts||0)+1;writeJson(FILES.otp,rows);return res.status(400).json({error:'Invalid OTP'});}rows.splice(idx,1);writeJson(FILES.otp,rows);res.json({success:true,token:signToken({type:'customer',mobile},24*7)});
+  if(idx<0)return res.status(400).json({error:'Request OTP first'});const r=rows[idx];if(new Date(r.expiresAt)<new Date()){rows.splice(idx,1);writeJson(FILES.otp,rows);return res.status(400).json({error:'OTP expired'});}if(!verifySecret(otp,r.hash)){r.attempts=(r.attempts||0)+1;if(r.attempts>=5)rows.splice(idx,1);writeJson(FILES.otp,rows);return res.status(400).json({error:r.attempts>=5?'Too many invalid attempts. Request a new OTP.':'Invalid OTP'});}rows.splice(idx,1);writeJson(FILES.otp,rows);res.json({success:true,token:signToken({type:'customer',mobile},24*7)});
 });
 app.get('/api/customer/me',customerAuth,(req,res)=>{const works=getWorks().filter(x=>x.mobile===req.customer.mobile);res.json({mobile:req.customer.mobile,name:works[0]?.name||'',email:works[0]?.email||'',works:works.length});});
 app.get('/api/customer/works',customerAuth,(req,res)=>res.json(getWorks().filter(x=>x.mobile===req.customer.mobile).map(publicWork)));
@@ -351,14 +358,14 @@ app.get('/api/customer/tickets',customerAuth,(req,res)=>res.json(db.tickets().fi
 app.post('/api/customer/tickets',customerAuth,(req,res)=>{const rows=db.tickets(),t={id:uid('TKT'),mobile:req.customer.mobile,subject:clean(req.body.subject,150),message:clean(req.body.message,2000),status:'Open',priority:['Normal','Urgent'].includes(req.body.priority)?req.body.priority:'Normal',reply:'',createdAt:nowIso(),updatedAt:nowIso()};if(!t.subject||!t.message)return res.status(400).json({error:'Subject and message required'});rows.unshift(t);writeJson(FILES.tickets,rows);res.status(201).json(t);});
 
 // Staff login
-app.post('/api/staff/login',(req,res)=>{
+app.post('/api/staff/login',rateLimit(15*60*1000,12),(req,res)=>{
   const username=clean(req.body.username,80),password=clean(req.body.password,200);
   if(username===(process.env.ADMIN_USER||'admin')&&password===(process.env.ADMIN_PASSWORD||'ChangeMe123'))return res.json({success:true,token:signToken({type:'staff',id:'ENV-ADMIN',name:'Admin',role:'admin'}),staff:{id:'ENV-ADMIN',name:'Admin',role:'admin'}});
   const s=db.staff().find(x=>x.username===username&&x.active!==false&&verifySecret(password,x.passwordHash));if(!s)return res.status(401).json({error:'Invalid staff login'});res.json({success:true,token:signToken({type:'staff',id:s.id,name:s.name,role:s.role}),staff:{id:s.id,name:s.name,role:s.role}});
 });
 
 // Partner APIs
-app.post('/api/partner/login',(req,res)=>{const id=clean(req.body.partnerId,30).toUpperCase(),pin=clean(req.body.pin,50),p=db.partners().find(x=>x.id===id&&x.active!==false&&(verifySecret(pin,x.pinHash)||verifySecret(pin,x.pinSecret)));if(!p)return res.status(401).json({error:'Invalid Partner ID or PIN'});res.json({success:true,token:signToken({type:'partner',id:p.id,name:p.name},24),partner:{id:p.id,name:p.name,mobile:p.mobile,area:p.area}});});
+app.post('/api/partner/login',rateLimit(15*60*1000,12),(req,res)=>{const id=clean(req.body.partnerId,30).toUpperCase(),pin=clean(req.body.pin,50),p=db.partners().find(x=>x.id===id&&x.active!==false&&(verifySecret(pin,x.pinHash)||verifySecret(pin,x.pinSecret)));if(!p)return res.status(401).json({error:'Invalid Partner ID or PIN'});res.json({success:true,token:signToken({type:'partner',id:p.id,name:p.name},24),partner:{id:p.id,name:p.name,mobile:p.mobile,area:p.area}});});
 app.get('/api/partner/me',partnerAuth,(req,res)=>res.json({...safePartner(req.partner),wallet:commissionLedger(req.partner.id)}));
 function safePartner(p){const {pinHash,pinSecret,...x}=p;return x;}
 app.get('/api/partner/stats',partnerAuth,(req,res)=>{const w=getWorks().filter(x=>x.partnerId===req.partner.id),ledger=commissionLedger(req.partner.id);res.json({total:w.length,processing:w.filter(x=>['New','Received','Assigned','Processing','Checking','Waiting for Customer'].includes(x.status)).length,completed:w.filter(x=>['Completed','Delivered'].includes(x.status)).length,totalFee:w.reduce((a,x)=>a+x.totalFee,0),paid:w.reduce((a,x)=>a+x.paidAmount,0),due:w.reduce((a,x)=>a+x.dueAmount,0),...ledger});});
@@ -380,8 +387,8 @@ app.post('/api/admin/requests',staffAuth(),upload.none(),(req,res)=>{try{req.fil
 app.patch('/api/admin/requests/:id',staffAuth(),async(req,res)=>{
   const works=getWorks(),item=works.find(x=>x.id===req.params.id.toUpperCase());if(!item)return res.status(404).json({error:'Request not found'});
   const oldStatus=item.status, allowed=['Received','New','Assigned','Processing','Checking','Waiting for Customer','Completed','Delivered','Cancelled'];
-  if(req.body.status&&allowed.includes(req.body.status)&&req.body.status!==item.status){item.status=req.body.status;item.history.push({status:item.status,at:nowIso(),by:req.actor.name});if(['Completed','Delivered'].includes(item.status)&&item.partnerId)item.commissionStatus='Earned';}
-  for(const k of ['adminNote','dueDate','deadline','expiryDate'])if(req.body[k]!==undefined)item[k]=clean(req.body[k],k==='adminNote'?1000:50);
+  if(req.body.status&&allowed.includes(req.body.status)&&req.body.status!==item.status){item.status=req.body.status;item.history.push({status:item.status,at:nowIso(),by:req.actor.name});if(item.partnerId)item.commissionStatus=['Completed','Delivered'].includes(item.status)?'Earned':'Pending';}
+  for(const k of ['adminNote','customerNote','dueDate','deadline','expiryDate'])if(req.body[k]!==undefined)item[k]=clean(req.body[k],['adminNote','customerNote'].includes(k)?1000:50);
   if(['Normal','Urgent','Very Urgent'].includes(req.body.priority))item.priority=req.body.priority;
   if(req.body.totalFee!==undefined)item.totalFee=num(req.body.totalFee);
   if(req.body.assignedStaffId!==undefined){const s=db.staff().find(x=>x.id===req.body.assignedStaffId);item.assignedStaffId=s?.id||'';item.assignedStaffName=s?.name||'';}
@@ -394,7 +401,7 @@ app.delete('/api/admin/requests/:id',staffAuth(['admin']),(req,res)=>{const work
 
 // Payments
 app.get('/api/admin/payments',staffAuth(),(req,res)=>{let p=db.payments();const workId=clean(req.query.workId,50);if(workId)p=p.filter(x=>x.workId===workId);res.json(p);});
-app.post('/api/admin/payments',staffAuth(),(req,res)=>{const workId=clean(req.body.workId,50).toUpperCase(),amount=num(req.body.amount);if(!workId||amount<=0)return res.status(400).json({error:'Work ID and amount required'});const works=getWorks(),w=works.find(x=>x.id===workId);if(!w)return res.status(404).json({error:'Work not found'});const rows=db.payments(),p={id:uid('PAY'),workId:w.id,mobile:w.mobile,amount,mode:clean(req.body.mode,50)||'Cash',reference:clean(req.body.reference,120),note:clean(req.body.note,300),type:'payment',createdAt:nowIso(),by:req.actor.name};rows.unshift(p);writeJson(FILES.payments,rows);w.paymentHistoryIds=[...(w.paymentHistoryIds||[]),p.id];updateWorkFinancials(w);w.updatedAt=nowIso();saveWorks(works);setImmediate(()=>notifyMobile(w.mobile,`Payment received ₹${amount} for work ${w.id}. Paid: ₹${w.paidAmount}, Due: ₹${w.dueAmount}. - ${shopConfig().shopName}`,{type:'payment',workId:w.id}).catch(()=>{}));res.status(201).json({payment:p,work:w});});
+app.post('/api/admin/payments',staffAuth(),(req,res)=>{const workId=clean(req.body.workId,50).toUpperCase(),amount=num(req.body.amount);if(!workId||amount<=0)return res.status(400).json({error:'Work ID and amount required'});const works=getWorks(),w=works.find(x=>x.id===workId);if(!w)return res.status(404).json({error:'Work not found'});if(amount>w.dueAmount)return res.status(400).json({error:`Amount exceeds current due ₹${w.dueAmount}`});const rows=db.payments(),p={id:uid('PAY'),workId:w.id,mobile:w.mobile,amount,mode:clean(req.body.mode,50)||'Cash',reference:clean(req.body.reference,120),note:clean(req.body.note,300),type:'payment',createdAt:nowIso(),by:req.actor.name};rows.unshift(p);writeJson(FILES.payments,rows);w.paymentHistoryIds=[...(w.paymentHistoryIds||[]),p.id];if(w.paymentClaimStatus==='Pending Verification'){w.paymentClaimStatus='Verified';}updateWorkFinancials(w);w.updatedAt=nowIso();saveWorks(works);setImmediate(()=>notifyMobile(w.mobile,`Payment received ₹${amount} for work ${w.id}. Paid: ₹${w.paidAmount}, Due: ₹${w.dueAmount}. - ${shopConfig().shopName}`,{type:'payment',workId:w.id}).catch(()=>{}));res.status(201).json({payment:p,work:w});});
 
 // Customers
 app.get('/api/admin/customers',staffAuth(),(req,res)=>{
@@ -422,7 +429,7 @@ app.patch('/api/admin/services/:id',staffAuth(['admin']),(req,res)=>{const rows=
 app.get('/api/admin/partners',staffAuth(),(_,res)=>res.json(db.partners().map(p=>({...safePartner(p),ledger:commissionLedger(p.id)}))));
 app.post('/api/admin/partners',staffAuth(['admin']),(req,res)=>{const rows=db.partners(),name=clean(req.body.name,100),mobile=clean(req.body.mobile,15),area=clean(req.body.area,120),pin=clean(req.body.pin,50);if(!name||!/^\d{10}$/.test(mobile)||pin.length<4)return res.status(400).json({error:'Name, 10-digit mobile and minimum 4-digit PIN required'});const p={id:nextSequence('MSP',rows),name,mobile,area,pinHash:hashSecret(pin),active:true,createdAt:nowIso()};rows.push(p);writeJson(FILES.partners,rows);res.status(201).json(safePartner(p));});
 app.patch('/api/admin/partners/:id',staffAuth(['admin']),(req,res)=>{const rows=db.partners(),p=rows.find(x=>x.id===req.params.id.toUpperCase());if(!p)return res.status(404).json({error:'Partner not found'});for(const k of ['name','area'])if(req.body[k]!==undefined)p[k]=clean(req.body[k],120);if(req.body.mobile!==undefined&&/^\d{10}$/.test(req.body.mobile))p.mobile=req.body.mobile;if(req.body.active!==undefined)p.active=!!req.body.active;if(req.body.pin&&String(req.body.pin).length>=4)p.pinHash=hashSecret(req.body.pin);writeJson(FILES.partners,rows);res.json(safePartner(p));});
-app.post('/api/admin/partner-wallet',staffAuth(['admin']),(req,res)=>{const partnerId=clean(req.body.partnerId,30).toUpperCase(),p=db.partners().find(x=>x.id===partnerId);if(!p)return res.status(404).json({error:'Partner not found'});const type=['advance_credit','advance_debit','commission_settlement'].includes(req.body.type)?req.body.type:'';const amount=num(req.body.amount);if(!type||amount<=0)return res.status(400).json({error:'Valid type and amount required'});const rows=db.wallet(),t={id:uid('PWT'),partnerId,type,amount,note:clean(req.body.note,300),createdAt:nowIso(),by:req.actor.name};rows.unshift(t);writeJson(FILES.wallet,rows);res.status(201).json({transaction:t,ledger:commissionLedger(partnerId)});});
+app.post('/api/admin/partner-wallet',staffAuth(['admin']),(req,res)=>{const partnerId=clean(req.body.partnerId,30).toUpperCase(),p=db.partners().find(x=>x.id===partnerId);if(!p)return res.status(404).json({error:'Partner not found'});const type=['advance_credit','advance_debit','commission_settlement'].includes(req.body.type)?req.body.type:'';const amount=num(req.body.amount);if(!type||amount<=0)return res.status(400).json({error:'Valid type and amount required'});if(type==='commission_settlement'&&amount>commissionLedger(partnerId).commissionPending)return res.status(400).json({error:'Settlement exceeds pending commission'});const rows=db.wallet(),t={id:uid('PWT'),partnerId,type,amount,note:clean(req.body.note,300),createdAt:nowIso(),by:req.actor.name};rows.unshift(t);writeJson(FILES.wallet,rows);res.status(201).json({transaction:t,ledger:commissionLedger(partnerId)});});
 
 // Staff management
 app.get('/api/admin/staff',staffAuth(['admin']),(_,res)=>res.json(db.staff().map(({passwordHash,...s})=>s)));
@@ -445,16 +452,16 @@ app.put('/api/admin/settings',staffAuth(['admin']),(req,res)=>{const current=db.
 function csvEscape(v){return '"'+String(v??'').replace(/"/g,'""')+'"';}
 function workCsv(){const rows=getWorks(),head=['Work ID','Date','Receipt','Invoice','Partner ID','Partner','Customer','Mobile','Service','Priority','Due Date','Status','Payment Status','Total Fee','Paid','Due','Commission'];return '\uFEFF'+[head,...rows.map(w=>[w.id,w.createdAt,w.receiptNo,w.invoiceNo,w.partnerId,w.partnerName,w.name,w.mobile,w.service,w.priority,w.dueDate,w.status,w.paymentStatus,w.totalFee,w.paidAmount,w.dueAmount,w.commissionAmount])].map(r=>r.map(csvEscape).join(',')).join('\n');}
 app.get('/api/admin/export',staffAuth(),(_,res)=>{res.setHeader('Content-Type','text/csv; charset=utf-8');res.setHeader('Content-Disposition','attachment; filename="ms-manish-erp-report.csv"');res.send(workCsv());});
-function backupSnapshot(){return {version:'4.0.0',createdAt:nowIso(),data:{requests:getWorks(),partners:db.partners(),staff:db.staff(),payments:db.payments(),expenses:db.expenses(),services:serviceRows(),settings:db.settings(),tickets:db.tickets(),wallet:db.wallet(),notifications:db.notifications()}};}
+function backupSnapshot(){return {version:'4.1.0',createdAt:nowIso(),data:{requests:getWorks(),partners:db.partners(),staff:db.staff(),payments:db.payments(),expenses:db.expenses(),services:serviceRows(),settings:db.settings(),tickets:db.tickets(),wallet:db.wallet(),notifications:db.notifications()}};}
 async function performBackup(reason='scheduled'){
   const stamp=nowIso().replace(/[:.]/g,'-'),jsonPath=path.join(BACKUP_DIR,`ms-manish-erp-${stamp}.json`),csvPath=path.join(BACKUP_DIR,`ms-manish-erp-${stamp}.csv`);fs.writeFileSync(jsonPath,JSON.stringify(backupSnapshot(),null,2));fs.writeFileSync(csvPath,workCsv());
   const retention=Math.max(1,Number(process.env.BACKUP_RETENTION_DAYS||14))*86400000;for(const f of fs.readdirSync(BACKUP_DIR)){const p=path.join(BACKUP_DIR,f);try{if(fs.statSync(p).isFile()&&Date.now()-fs.statSync(p).mtimeMs>retention)fs.unlinkSync(p);}catch{}}
   if(String(process.env.GOOGLE_DRIVE_ENABLED).toLowerCase()==='true'){await uploadToDrive(jsonPath,path.basename(jsonPath),'application/json');await uploadToDrive(csvPath,path.basename(csvPath),'text/csv');}
   logNotification({mobile:'',message:`Backup completed (${reason})`,context:{type:'backup',json:path.basename(jsonPath),csv:path.basename(csvPath)}});return {jsonPath,csvPath};
 }
-app.get('/api/admin/backup',staffAuth(),(_,res)=>{const snap=backupSnapshot();res.setHeader('Content-Disposition','attachment; filename="ms-manish-erp-backup-v4.json"');res.json(snap);});
+app.get('/api/admin/backup',staffAuth(['admin']),(_,res)=>{const snap=backupSnapshot();res.setHeader('Content-Disposition','attachment; filename="ms-manish-erp-backup-v4.json"');res.json(snap);});
 app.post('/api/admin/backup/run',staffAuth(['admin']),async(_,res)=>{try{const r=await performBackup('manual');res.json({success:true,files:[path.basename(r.jsonPath),path.basename(r.csvPath)]});}catch(e){res.status(500).json({error:e.message});}});
-app.post('/api/admin/restore',staffAuth(['admin']),upload.single('backup'),(req,res)=>{try{const raw=JSON.parse(fs.readFileSync(req.file.path,'utf8')),data=raw.data||raw;if(!Array.isArray(data.requests)&&!Array.isArray(raw))throw new Error('Invalid backup');if(Array.isArray(raw)){writeJson(FILES.requests,raw);}else{for(const [k,file] of Object.entries(FILES)){if(k==='otp')continue;if(data[k]!==undefined)writeJson(file,data[k]);}}fs.unlinkSync(req.file.path);res.json({success:true,count:getWorks().length});}catch(e){if(req.file)try{fs.unlinkSync(req.file.path)}catch{};res.status(400).json({error:'Invalid backup file: '+e.message});}});
+app.post('/api/admin/restore',staffAuth(['admin']),restoreUpload.single('backup'),(req,res)=>{try{if(!req.file)throw new Error('Select a JSON backup');const raw=JSON.parse(req.file.buffer.toString('utf8')),data=raw.data||raw;if(!Array.isArray(data.requests)&&!Array.isArray(raw))throw new Error('Invalid backup');if(Array.isArray(raw)){writeJson(FILES.requests,raw);}else{for(const [k,file] of Object.entries(FILES)){if(k==='otp')continue;if(data[k]!==undefined)writeJson(file,data[k]);}}res.json({success:true,count:getWorks().length});}catch(e){res.status(400).json({error:'Invalid backup file: '+e.message});}});
 
 // Notification log for diagnostics
 app.get('/api/admin/notifications',staffAuth(['admin']),(_,res)=>res.json(db.notifications().slice(0,500)));
@@ -478,4 +485,4 @@ setInterval(()=>{
   }
 },12*60*60*1000).unref();
 
-app.listen(PORT,()=>console.log(`MS MANISH CYBER ERP v4 running on http://localhost:${PORT}`));
+app.listen(PORT,()=>console.log(`MS MANISH CYBER ERP v4.1 running on http://localhost:${PORT}`));
