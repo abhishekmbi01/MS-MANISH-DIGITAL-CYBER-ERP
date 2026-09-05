@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: ms-manish-digital-cyber-erp
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: DATA_DIR
+        value: /var/data/erp-data
+      - key: UPLOAD_DIR
+        value: /var/data/uploads
+      - key: BACKUP_DIR
+        value: /var/data/backups
+      - key: ADMIN_USER
+        value: admin
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: TOKEN_SECRET
+        sync: false
+    disk:
+      name: ms-manish-erp-data
+      mountPath: /var/data
+      sizeGB: 1

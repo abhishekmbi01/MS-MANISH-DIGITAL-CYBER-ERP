@@ -1,6 +1,28 @@
-ROOT FILE CHECK
-server.js
-package.json
-.env.example
-render.yaml
-README.md
+MS MANISH ERP v4 COMPLETE - START HERE
+
+IMPORTANT: Purana live data delete mat karna.
+
+SAFE UPGRADE:
+1) Current ERP ka backup download karo.
+2) Current project ke data/ aur uploads/ folder ka alag copy rakho.
+3) Is v4 folder ko extract karo.
+4) Old project ka data copy karne ke liye:
+   node tools/migrate-v3.js C:\PATH\TO\OLD-V3-PROJECT
+5) .env.example ko .env banao.
+6) ADMIN_PASSWORD aur TOKEN_SECRET strong rakho.
+7) npm install
+8) npm start
+9) Browser:
+   /          Customer Send Work / Track Work
+   /customer  Customer OTP Login
+   /partner   Partner Login
+   /admin     Admin / Operator Login
+
+LIVE DEPLOY SE PEHLE:
+- Admin > Services me fees/commission check karo.
+- UPI_ID set karo.
+- WhatsApp/SMS/Google Drive credentials ho to .env/Render Environment me set karo.
+- Ek test work + payment + receipt + partner work + OTP test karo.
+
+External credentials ke bina bhi ERP ka main work/payment/accounts/partner/customer tracking system chalega.
+WhatsApp automatic send, SMS OTP/fallback aur Google Drive upload ke liye credentials required hain.
